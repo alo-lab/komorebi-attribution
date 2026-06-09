@@ -1,7 +1,6 @@
 import { supabase } from "@/lib/supabase";
 
 export async function POST(request: Request) {
-  export async function POST(request: Request) {
 
   const apiKey = request.headers.get("x-api-key");
 
@@ -16,6 +15,7 @@ export async function POST(request: Request) {
       }
     );
   }
+
   try {
     const payload = await request.json();
 
@@ -36,7 +36,6 @@ export async function POST(request: Request) {
     });
 
   } catch (error) {
-
     console.error(error);
 
     return Response.json(
