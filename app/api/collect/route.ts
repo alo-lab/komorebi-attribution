@@ -1,3 +1,5 @@
+import { after } from "next/server";
+import { sendClickflarePostback, type PixelPayload } from "@/lib/clickflare";
 import { supabase } from "@/lib/supabase";
 
 // Public endpoint for the browser pixel (public/pixel.js), fired through GTM.
@@ -16,6 +18,19 @@ const PIXEL_GIF = Uint8Array.from(
   atob("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"),
   (char) => char.charCodeAt(0)
 );
+
+// Some traffic partners put subscriber emails in UTMs (e.g. utm_campaign=..._sub1=name@gmail.com).
+// Raw emails are never stored; the pixel sends hashed emails in `data` instead.
+const EMAIL = /[A-Z0-9._%+-]+(?:@|%40)[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+
+function redactEmails(value: unknown): unknown {
+  if (typeof value === "string") return value.replace(EMAIL, "[email]");
+  if (Array.isArray(value)) return value.map(redactEmails);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redactEmails(item)]));
+  }
+  return value;
+}
 
 function requestOrigin(request: Request) {
   const origin = request.headers.get("origin");
@@ -49,11 +64,13 @@ async function storeEvent(request: Request, origin: string, payload: Record<stri
     return "Invalid event";
   }
 
+  const clean = redactEmails(payload) as Record<string, unknown>;
+
   const { error } = await supabase.from("raw_events").insert({
     source: "pixel",
     event_name: eventName,
     payload: {
-      ...payload,
+      ...clean,
       server: {
         received_at: new Date().toISOString(),
         origin,
@@ -66,6 +83,8 @@ async function storeEvent(request: Request, origin: string, payload: Record<stri
   if (error) {
     throw error;
   }
+
+  after(() => sendClickflarePostback(clean as PixelPayload));
 
   return null;
 }
