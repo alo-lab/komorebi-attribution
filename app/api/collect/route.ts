@@ -1,5 +1,5 @@
 import { after } from "next/server";
-import { sendClickflarePostback, type PixelPayload } from "@/lib/clickflare";
+import { clickflareClickId, sendClickflarePostback, type PixelPayload } from "@/lib/clickflare";
 import { supabase } from "@/lib/supabase";
 
 // Public endpoint for the browser pixel (public/pixel.js), fired through GTM.
@@ -57,11 +57,19 @@ function corsHeaders(origin: string | null): Record<string, string> {
   };
 }
 
+const NOT_KOMOREBI = "Not Komorebi traffic";
+
 async function storeEvent(request: Request, origin: string, payload: Record<string, unknown>) {
   const eventName = typeof payload.event === "string" ? payload.event : "";
 
   if (!EVENT_NAME.test(eventName)) {
     return "Invalid event";
+  }
+
+  // Only Komorebi traffic (arrived through a ClickFlare click) is stored; the offer's
+  // other visitors aren't ours to keep. pixel.js already skips them; this is the backstop.
+  if (!clickflareClickId(payload as PixelPayload) && !payload.cf_click_id) {
+    return NOT_KOMOREBI;
   }
 
   const clean = redactEmails(payload) as Record<string, unknown>;
@@ -119,6 +127,10 @@ export async function POST(request: Request) {
     }
 
     const invalid = await storeEvent(request, origin, payload);
+
+    if (invalid === NOT_KOMOREBI) {
+      return Response.json({ success: true, stored: false }, { headers });
+    }
 
     if (invalid) {
       return Response.json({ success: false, error: invalid }, { status: 400, headers });

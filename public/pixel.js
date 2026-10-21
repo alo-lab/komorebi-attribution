@@ -4,6 +4,9 @@
  *   komorebi('init', { offer: 'autocamp' });          // once, on every page
  *   komorebi('track', 'lead', { investor_id: '...' }); // at each funnel step
  *
+ * Only visitors who arrived with a ClickFlare cf_click_id are tracked; everyone else
+ * on the offer's site is ignored (no cookie, no storage, no requests).
+ *
  * On every page it captures click IDs and UTMs from the URL, keeps first- and
  * last-touch attribution in first-party storage, and attaches them to every
  * event sent to /api/collect.
@@ -101,10 +104,20 @@
     return touch && touch.fbclid ? "fb.1." + touch.landed_at_ms + "." + touch.fbclid : null;
   }
 
+  // Only visitors who arrived through a Komorebi (ClickFlare) click are tracked.
+  // Everyone else gets no cookie, no storage and no requests.
+  function isKomorebi(state, params) {
+    return !!(params.cf_click_id ||
+      (state.first && state.first.cf_click_id) ||
+      (state.last && state.last.cf_click_id));
+  }
+
   function captureTouch() {
     var state = load();
     var params = urlParams();
     var referrer = externalReferrer();
+
+    if (!isKomorebi(state, params)) return null;
 
     state.visitor_id = visitorId();
 
@@ -171,6 +184,7 @@
 
   function track(event, data) {
     var state = captureTouch();
+    if (!state) return;
 
     cleanData(data).then(function (clean) {
       send({
